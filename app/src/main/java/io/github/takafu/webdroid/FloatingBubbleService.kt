@@ -61,9 +61,25 @@ class FloatingBubbleService : Service() {
         private var currentUaMode = UA_MODE_DEFAULT
         private var customUa: String? = null
 
+        // Home URL for the home button
+        const val HOME_URL = "https://www.google.com"
+
         // Close window and return to bubble mode
         fun minimizeWindow() {
             instance?.minimizeToToBubble()
+        }
+
+        // Navigation actions
+        fun navigateBack() {
+            instance?.navigateBack()
+        }
+
+        fun navigateForward() {
+            instance?.navigateForward()
+        }
+
+        fun navigateHome() {
+            instance?.navigateHome()
         }
 
         // Get current UA mode
@@ -966,7 +982,56 @@ class FloatingBubbleService : Service() {
             }
         }
 
+        // Navigation buttons: Back, Forward, Home
+        val navButtonSize = 64
+        val navPadding = 16
+
+        val backButton = ImageView(this).apply {
+            setImageResource(R.drawable.ic_arrow_back)
+            layoutParams = LinearLayout.LayoutParams(navButtonSize, navButtonSize).apply {
+                marginEnd = 4
+            }
+            setPadding(navPadding, navPadding, navPadding, navPadding)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setOnClickListener { navigateBack() }
+        }
+
+        val forwardButton = ImageView(this).apply {
+            setImageResource(R.drawable.ic_arrow_forward)
+            layoutParams = LinearLayout.LayoutParams(navButtonSize, navButtonSize).apply {
+                marginEnd = 4
+            }
+            setPadding(navPadding, navPadding, navPadding, navPadding)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setOnClickListener { navigateForward() }
+        }
+
+        val homeButton = ImageView(this).apply {
+            setImageResource(R.drawable.ic_home)
+            layoutParams = LinearLayout.LayoutParams(navButtonSize, navButtonSize).apply {
+                marginEnd = 8
+            }
+            setPadding(navPadding, navPadding, navPadding, navPadding)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setOnClickListener { navigateHome() }
+        }
+
         header.addView(title)
+        header.addView(backButton)
+        header.addView(forwardButton)
+        header.addView(homeButton)
         header.addView(authBtn)
         header.addView(minimizeButton)
         container.addView(header)
@@ -1439,6 +1504,27 @@ class FloatingBubbleService : Service() {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             closeFloatingWindow()
         }
+    }
+
+    // Navigation methods
+    private fun navigateBack() {
+        BrowserActivity.webView?.let { webView ->
+            if (webView.canGoBack()) {
+                webView.goBack()
+            }
+        }
+    }
+
+    private fun navigateForward() {
+        BrowserActivity.webView?.let { webView ->
+            if (webView.canGoForward()) {
+                webView.goForward()
+            }
+        }
+    }
+
+    private fun navigateHome() {
+        BrowserActivity.webView?.loadUrl(HOME_URL)
     }
 
     // Show auth dialog

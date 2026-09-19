@@ -145,6 +145,7 @@ class AutomationService : Service() {
                 uri == "/back" && method == Method.POST -> handleBack()
                 uri == "/forward" && method == Method.POST -> handleForward()
                 uri == "/refresh" && method == Method.POST -> handleRefresh()
+                uri == "/home" && method == Method.POST -> handleHome()
                 uri == "/url" && method == Method.GET -> handleGetUrl()
                 uri == "/title" && method == Method.GET -> handleGetTitle()
                 uri == "/html" && method == Method.GET -> handleGetHtml()
@@ -301,6 +302,13 @@ class AutomationService : Service() {
                 BrowserActivity.webView?.reload()
             }
             return successResponse("Page refreshed")
+        }
+
+        private fun handleHome(): Response {
+            runOnMainThread {
+                BrowserActivity.webView?.loadUrl(FloatingBubbleService.HOME_URL)
+            }
+            return successResponse("Navigated to home")
         }
 
         private fun handleGetUrl(): Response {
