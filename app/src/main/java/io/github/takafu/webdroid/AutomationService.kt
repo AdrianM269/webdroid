@@ -146,6 +146,8 @@ class AutomationService : Service() {
                 uri == "/forward" && method == Method.POST -> handleForward()
                 uri == "/refresh" && method == Method.POST -> handleRefresh()
                 uri == "/home" && method == Method.POST -> handleHome()
+                uri == "/home/url" && method == Method.GET -> handleGetHomeUrl()
+                uri == "/home/url" && method == Method.POST -> handleSetHomeUrl(session)
                 uri == "/url" && method == Method.GET -> handleGetUrl()
                 uri == "/title" && method == Method.GET -> handleGetTitle()
                 uri == "/html" && method == Method.GET -> handleGetHtml()
@@ -308,7 +310,25 @@ class AutomationService : Service() {
             runOnMainThread {
                 BrowserActivity.webView?.loadUrl(FloatingBubbleService.HOME_URL)
             }
-            return successResponse("Navigated to home")
+            return successResponse("Navigated to home: ${FloatingBubbleService.HOME_URL}")
+        }
+
+        private fun handleGetHomeUrl(): Response {
+            return successResponse(FloatingBubbleService.HOME_URL)
+        }
+
+        private fun handleSetHomeUrl(session: IHTTPSession): Response {
+            val params = parseBody(session)
+            val url = params["url"] as? String
+            return if (url != null && url.isNotEmpty()) {
+                FloatingBubbleService.setHomeUrl(url)
+                runOnMainThread {
+                    BrowserActivity.webView?.loadUrl(url)
+                }
+                successResponse("Home URL set to $url")
+            } else {
+                errorResponse("Missing 'url' parameter")
+            }
         }
 
         private fun handleGetUrl(): Response {

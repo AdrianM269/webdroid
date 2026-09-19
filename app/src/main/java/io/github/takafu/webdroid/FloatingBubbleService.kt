@@ -61,8 +61,34 @@ class FloatingBubbleService : Service() {
         private var currentUaMode = UA_MODE_DEFAULT
         private var customUa: String? = null
 
-        // Home URL for the home button
-        const val HOME_URL = "https://www.google.com"
+        // Home URL for the home button (can be overridden via ~/.webdroid_home)
+        var HOME_URL = "https://www.google.com"
+            private set
+
+        // Load custom home URL from file
+        fun loadHomeUrl() {
+            try {
+                val file = java.io.File("/data/data/com.termux/files/home/.webdroid_home")
+                if (file.exists()) {
+                    val url = file.readText().trim()
+                    if (url.isNotEmpty()) {
+                        HOME_URL = url
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore errors, use default
+            }
+        }
+
+        // Set home URL and persist to file
+        fun setHomeUrl(url: String) {
+            HOME_URL = url
+            try {
+                java.io.File("/data/data/com.termux/files/home/.webdroid_home").writeText(url)
+            } catch (e: Exception) {
+                // Ignore write errors
+            }
+        }
 
         // Close window and return to bubble mode
         fun minimizeWindow() {
@@ -157,6 +183,9 @@ class FloatingBubbleService : Service() {
         instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
+        // Load custom home URL from file (if set)
+        loadHomeUrl()
+
         // Initialize WebView
         if (BrowserActivity.webView == null) {
             BrowserActivity.webView = createWebView()
@@ -225,7 +254,7 @@ class FloatingBubbleService : Service() {
             scaleType = ImageView.ScaleType.CENTER_INSIDE
 
             // Padding for proper icon sizing
-            val padding = 28
+            val padding = 20
             setPadding(padding, padding, padding, padding)
 
             // Gradient background (purple to blue)
@@ -247,8 +276,8 @@ class FloatingBubbleService : Service() {
         }
 
         val params = WindowManager.LayoutParams(
-            130,
-            130,
+            100,
+            100,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
@@ -271,7 +300,7 @@ class FloatingBubbleService : Service() {
 
         // Create trash (same style as bubble)
         // Icon: Feather Icons "trash-2" (https://feathericons.com/)
-        val trashSize = 130
+        val trashSize = 100
         val trash = ImageView(this).apply {
             setImageResource(R.drawable.ic_trash)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -313,7 +342,7 @@ class FloatingBubbleService : Service() {
 
         // Create stash zone at top (to hide browser temporarily)
         // Icon: Feather Icons "eye-off" (hide browser)
-        val stashSize = 130
+        val stashSize = 100
         val stash = ImageView(this).apply {
             setImageResource(R.drawable.ic_eye_off)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -418,10 +447,10 @@ class FloatingBubbleService : Service() {
 
                     // Check distance to trash
                     if (isDragging) {
-                        val bubbleCenterX = screenWidth - params.x - 65  // Bubble center X
-                        val bubbleCenterY = params.y + 65  // Bubble center Y
+                        val bubbleCenterX = screenWidth - params.x - 50  // Bubble center X
+                        val bubbleCenterY = params.y + 50  // Bubble center Y
                         val trashCenterX = screenWidth / 2
-                        val trashCenterY = screenHeight - 100 - 65  // Trash center Y
+                        val trashCenterY = screenHeight - 100 - 50  // Trash center Y
 
                         val distance = Math.sqrt(
                             Math.pow((bubbleCenterX - trashCenterX).toDouble(), 2.0) +
@@ -446,7 +475,7 @@ class FloatingBubbleService : Service() {
 
                         // Check distance to stash zone (top)
                         val stashCenterX = screenWidth / 2
-                        val stashCenterY = 100 + 65  // Stash center Y (top)
+                        val stashCenterY = 100 + 50  // Stash center Y (top)
                         val distanceToStash = Math.sqrt(
                             Math.pow((bubbleCenterX - stashCenterX).toDouble(), 2.0) +
                             Math.pow((bubbleCenterY - stashCenterY).toDouble(), 2.0)
@@ -500,12 +529,12 @@ class FloatingBubbleService : Service() {
                         .start()
 
                     // Check if dropped on trash or stash
-                    val bubbleCenterX = screenWidth - params.x - 65
-                    val bubbleCenterY = params.y + 65
+                    val bubbleCenterX = screenWidth - params.x - 50
+                    val bubbleCenterY = params.y + 50
                     val trashCenterX = screenWidth / 2
-                    val trashCenterY = screenHeight - 100 - 65
+                    val trashCenterY = screenHeight - 100 - 50
                     val stashCenterX = screenWidth / 2
-                    val stashCenterY = 100 + 65
+                    val stashCenterY = 100 + 50
 
                     val distanceToTrash = Math.sqrt(
                         Math.pow((bubbleCenterX - trashCenterX).toDouble(), 2.0) +
@@ -564,11 +593,11 @@ class FloatingBubbleService : Service() {
         stash.animate().alpha(0f).scaleX(0.5f).scaleY(0.5f).setDuration(150).start()
         // Trash center coordinates (bottom center of screen)
         val trashCenterX = screenWidth / 2
-        val trashCenterY = screenHeight - 100 - 65
+        val trashCenterY = screenHeight - 100 - 50
 
         // Current bubble center coordinates
-        val startX = screenWidth - params.x - 65
-        val startY = params.y + 65
+        val startX = screenWidth - params.x - 50
+        val startY = params.y + 50
 
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 200
@@ -578,8 +607,8 @@ class FloatingBubbleService : Service() {
                 // Move bubble toward trash center
                 val newCenterX = startX + (trashCenterX - startX) * t
                 val newCenterY = startY + (trashCenterY - startY) * t
-                params.x = (screenWidth - newCenterX - 65).toInt()
-                params.y = (newCenterY - 65).toInt()
+                params.x = (screenWidth - newCenterX - 50).toInt()
+                params.y = (newCenterY - 50).toInt()
                 bubble.scaleX = 1f - t * 0.5f
                 bubble.scaleY = 1f - t * 0.5f
                 try {
@@ -632,11 +661,11 @@ class FloatingBubbleService : Service() {
 
         // Stash center coordinates (top center of screen)
         val stashCenterX = screenWidth / 2
-        val stashCenterY = 100 + 65
+        val stashCenterY = 100 + 50
 
         // Current bubble center coordinates
-        val startX = screenWidth - params.x - 65
-        val startY = params.y + 65
+        val startX = screenWidth - params.x - 50
+        val startY = params.y + 50
 
         ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 200
@@ -646,8 +675,8 @@ class FloatingBubbleService : Service() {
                 // Move bubble toward stash center
                 val newCenterX = startX + (stashCenterX - startX) * t
                 val newCenterY = startY + (stashCenterY - startY) * t
-                params.x = (screenWidth - newCenterX - 65).toInt()
-                params.y = (newCenterY - 65).toInt()
+                params.x = (screenWidth - newCenterX - 50).toInt()
+                params.y = (newCenterY - 50).toInt()
                 bubble.scaleX = 1f - t * 0.5f
                 bubble.scaleY = 1f - t * 0.5f
                 try {
@@ -720,9 +749,9 @@ class FloatingBubbleService : Service() {
         var vx = -velocityX / 30f
         var vy = velocityY / 30f
         val trashCenterX = screenWidth / 2
-        val trashCenterY = screenHeight - 100 - 65
+        val trashCenterY = screenHeight - 100 - 50
         val stashCenterX = screenWidth / 2
-        val stashCenterY = 100 + 65
+        val stashCenterY = 100 + 50
 
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 500
@@ -731,11 +760,11 @@ class FloatingBubbleService : Service() {
                 vx *= friction
                 vy *= friction
 
-                params.x = (params.x + vx).toInt().coerceIn(0, screenWidth - 130)
-                params.y = (params.y + vy).toInt().coerceIn(0, screenHeight - 130)
+                params.x = (params.x + vx).toInt().coerceIn(0, screenWidth - 100)
+                params.y = (params.y + vy).toInt().coerceIn(0, screenHeight - 100)
 
-                val bubbleCenterX = screenWidth - params.x - 65
-                val bubbleCenterY = params.y + 65
+                val bubbleCenterX = screenWidth - params.x - 50
+                val bubbleCenterY = params.y + 50
 
                 // Check distance to trash
                 val distanceToTrash = Math.sqrt(
@@ -918,7 +947,7 @@ class FloatingBubbleService : Service() {
 
                 // Close animation - shrink toward bubble position
                 val bubbleParams = bubbleView?.layoutParams as? WindowManager.LayoutParams
-                val bubbleSize = 130f
+                val bubbleSize = 100f
 
                 // Current container size
                 val currentWidth = container.width.toFloat()
@@ -1108,7 +1137,7 @@ class FloatingBubbleService : Service() {
 
         // Get bubble position
         val bubbleParams = bubbleView?.layoutParams as? WindowManager.LayoutParams
-        val bubbleSize = 130
+        val bubbleSize = 100
 
         // Screen size
         val screenWidth = resources.displayMetrics.widthPixels
