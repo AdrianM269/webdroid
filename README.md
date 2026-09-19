@@ -10,6 +10,8 @@ A WebView-based browser automation app controllable from Termux via HTTP API. Fe
 - **JavaScript Execution** - Run scripts and get results
 - **Screenshot Capture** - Capture page as PNG
 - **Password Manager Support** - Works with Bitwarden via auth dialog
+- **Navigation Buttons** - Back, Forward, and Home buttons in the header
+- **Custom Homepage** - Long-press Home button to set a custom homepage URL
 
 ## Quick Start
 
@@ -53,6 +55,9 @@ HTTP server runs on `localhost:8765`.
 | POST | `/back` | Go back |
 | POST | `/forward` | Go forward |
 | POST | `/refresh` | Reload page |
+| POST | `/home` | Navigate to homepage |
+| GET | `/home/url` | Get current homepage URL |
+| POST | `/home/url` | Set homepage URL (body: `{"url":"..."}`) |
 | POST | `/execute` | Run JavaScript |
 | POST | `/eval` | Run JavaScript and return result |
 

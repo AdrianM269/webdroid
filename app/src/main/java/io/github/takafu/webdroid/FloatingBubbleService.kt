@@ -68,7 +68,7 @@ class FloatingBubbleService : Service() {
         // Load custom home URL from file
         fun loadHomeUrl() {
             try {
-                val file = java.io.File("/data/data/com.termux/files/home/.webdroid_home")
+                val file = java.io.File("/data/data/io.github.takafu.webdroid/.webdroid_home")
                 if (file.exists()) {
                     val url = file.readText().trim()
                     if (url.isNotEmpty()) {
@@ -84,7 +84,7 @@ class FloatingBubbleService : Service() {
         fun setHomeUrl(url: String) {
             HOME_URL = url
             try {
-                java.io.File("/data/data/com.termux/files/home/.webdroid_home").writeText(url)
+                java.io.File("/data/data/io.github.takafu.webdroid/.webdroid_home").writeText(url)
             } catch (e: Exception) {
                 // Ignore write errors
             }
@@ -1055,6 +1055,7 @@ class FloatingBubbleService : Service() {
             }
             scaleType = ImageView.ScaleType.FIT_CENTER
             setOnClickListener { navigateHome() }
+            setOnLongClickListener { showHomeUrlDialog(); true }
         }
 
         header.addView(title)
@@ -1554,6 +1555,97 @@ class FloatingBubbleService : Service() {
 
     private fun navigateHome() {
         BrowserActivity.webView?.loadUrl(HOME_URL)
+    }
+
+    // Show dialog to set custom home URL
+    private fun showHomeUrlDialog() {
+        val dialogView = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 24f
+                setColor(Color.parseColor("#FF2D2D2D"))
+            }
+        }
+
+        val titleText = android.widget.TextView(this).apply {
+            text = "Set Homepage URL"
+            setTextColor(Color.WHITE)
+            textSize = 18f
+            setPadding(0, 0, 0, 24)
+        }
+
+        val input = android.widget.EditText(this).apply {
+            setText(HOME_URL)
+            setHint("https://example.com")
+            setHintTextColor(Color.parseColor("#80FFFFFF"))
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#33FFFFFF"))
+            setPadding(24, 24, 24, 24)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+        }
+
+        val buttonLayout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, 24, 0, 0)
+        }
+
+        val cancelButton = android.widget.Button(this).apply {
+            text = "Cancel"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f
+                setColor(Color.parseColor("#667eea"))
+            }
+            setOnClickListener {
+                windowManager.removeView(dialogView)
+            }
+        }
+
+        val saveButton = android.widget.Button(this).apply {
+            text = "Save"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 12f
+                setColor(Color.parseColor("#764ba2"))
+            }
+            setOnClickListener {
+                val url = input.text.toString().trim()
+                if (url.isNotEmpty()) {
+                    setHomeUrl(url)
+                }
+                windowManager.removeView(dialogView)
+            }
+        }
+
+        buttonLayout.addView(cancelButton)
+        buttonLayout.addView(saveButton)
+
+        dialogView.addView(titleText)
+        dialogView.addView(input)
+        dialogView.addView(buttonLayout)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+
+        windowManager.addView(dialogView, params)
     }
 
     // Show auth dialog
