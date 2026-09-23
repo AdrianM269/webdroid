@@ -10,7 +10,11 @@ A WebView-based browser automation app controllable from Termux via HTTP API. Fe
 - **JavaScript Execution** - Run scripts and get results
 - **Screenshot Capture** - Capture page as PNG
 - **Password Manager Support** - Works with Bitwarden via auth dialog
+
+## Fork Extra Features
+
 - **Navigation Buttons** - Back, Forward, and Home buttons in the header. Long-press Home button to set a custom homepage URL
+- **Eruda Inspired API Endpoints** - Structured browser automation endpoints inspired by Eruda (console for mobile browsers). These enable AI agents to interact with web pages without writing raw JavaScript: index all clickable/typed elements, click/type by element ID, scroll the viewport, wait for conditions, and review console logs and action trails for debugging.
 
 ## Quick Start
 
@@ -59,6 +63,20 @@ HTTP server runs on `localhost:8765`.
 | POST | `/home/url` | Set homepage URL (body: `{"url":"..."}`) |
 | POST | `/execute` | Run JavaScript |
 | POST | `/eval` | Run JavaScript and return result |
+| GET | `/ua` | Get current user agent mode and string |
+| POST | `/ua/default` | Set user agent to desktop Chrome |
+| POST | `/ua/google-login` | Set user agent to Android Chrome (bypasses Google WebView detection) |
+| POST | `/ua/custom` | Set custom user agent string |
+| POST | `/index` | Index all interactive elements (returns IDs for click/type) |
+| POST | `/click` | Click element by ID or CSS selector |
+| POST | `/type` | Type text into element by ID or selector |
+| POST | `/scroll` | Scroll viewport by direction and amount |
+| GET | `/snapshot` | Quick read of URL, title, scroll position |
+| GET | `/console` | Get captured console logs (query: `?level=ERROR&since=TIMESTAMP`) |
+| POST | `/console/clear` | Clear console log buffer |
+| GET | `/trail` | Get action trail with timestamps |
+| POST | `/trail/clear` | Clear action trail |
+| POST | `/wait` | Wait for condition (selector, text, or URL substring) |
 
 ### Examples
 
@@ -75,6 +93,31 @@ curl http://localhost:8765/title
 curl -X POST http://localhost:8765/eval \
   -H "Content-Type: application/json" \
   -d '{"script":"document.title"}'
+```
+
+### Eruda Inspired Examples
+
+```bash
+# Index all interactive elements (returns IDs for click/type)
+curl -s -X POST http://localhost:8765/index -H "Content-Type: application/json" -d '{"force": true}'
+
+# Click element by ID
+curl -s -X POST http://localhost:8765/click -H "Content-Type: application/json" -d '{"id": 1}'
+
+# Type text into input by ID
+curl -s -X POST http://localhost:8765/type -H "Content-Type: application/json" -d '{"id": 3, "text": "hello"}'
+
+# Scroll down 500px
+curl -s -X POST http://localhost:8765/scroll -H "Content-Type: application/json" -d '{"direction": "down", "amount": 500}'
+
+# Wait for element to appear
+curl -s -X POST http://localhost:8765/wait -H "Content-Type: application/json" -d '{"condition": "selector", "value": ".loaded", "timeout_ms": 5000}'
+
+# Check console for errors
+curl -s "http://localhost:8765/console?level=ERROR"
+
+# Review action trail
+curl -s http://localhost:8765/trail
 ```
 
 ## Client Library
