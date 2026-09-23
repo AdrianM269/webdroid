@@ -1479,19 +1479,21 @@ class FloatingBubbleService : Service() {
             webChromeClient = object : android.webkit.WebChromeClient() {
                 override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
                     message?.let {
-                        AutomationService.onConsoleMessage(
-                            "${it.message()} (${it.sourceId()}:${it.lineNumber()})"
-                        )
+                        val level = when (it.messageLevel()) {
+                            android.webkit.ConsoleMessage.MessageLevel.ERROR -> "ERROR"
+                            android.webkit.ConsoleMessage.MessageLevel.WARNING -> "WARN"
+                            android.webkit.ConsoleMessage.MessageLevel.DEBUG -> "DEBUG"
+                            else -> "LOG"
+                        }
+                        AutomationService.addConsoleLog(level, it.message(), it.sourceId(), it.lineNumber(), BrowserActivity.webView?.url ?: "")
                     }
                     return true
                 }
-
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                     super.onProgressChanged(view, newProgress)
                     AutomationService.onProgressChanged(newProgress)
                 }
             }
-
             loadUrl("about:blank")
         }
     }
