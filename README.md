@@ -14,7 +14,7 @@ A WebView-based browser automation app controllable from Termux via HTTP API. Fe
 ## Fork Extra Features
 
 - **Navigation Buttons** - Back, Forward, and Home buttons in the header. Long-press Home button to set a custom homepage URL
-- **Eruda Inspired API Endpoints** - Structured browser automation endpoints inspired by Eruda (console for mobile browsers). These enable AI agents to interact with web pages without writing raw JavaScript: index all clickable/typed elements, click/type by element ID, scroll the viewport, wait for conditions, and review console logs and action trails for debugging.
+- **Eruda Inspired New API** - Inspired by Eruda-Android (console for mobile browsers). These enable interaction with web pages without writing raw JavaScript: index all clickable/typed elements, click/type by element ID, scroll the viewport, wait for conditions, and review console logs and action trails for debugging.
 
 ## Quick Start
 
@@ -95,7 +95,7 @@ curl -X POST http://localhost:8765/eval \
   -d '{"script":"document.title"}'
 ```
 
-### Eruda Inspired Examples
+### Eruda Examples
 
 ```bash
 # Index all interactive elements (returns IDs for click/type)
@@ -156,9 +156,10 @@ WebView (floating overlay)
 
 ## Requirements
 
-- Android 8.0+ (for overlay permissions)
+- Android 8.0+
 - Termux with ADB access
 - Display over other apps permission
+- Notifications permission
 
 ## Tech Stack
 
