@@ -73,6 +73,21 @@
             android:name=".FloatingBubbleService"
             android:exported="false"
             android:enabled="true" />
+
+        <!--
+            Exported so the system can deliver the restore broadcast. The
+            FloatingBubbleService itself is not exported, which is why a
+            PendingIntent aimed straight at it silently did nothing once the
+            process had been reclaimed.
+        -->
+        <receiver
+            android:name=".FloatingBubbleService$RestoreReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="io.github.takafu.webdroid.RESTORE_OVERLAYS" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
