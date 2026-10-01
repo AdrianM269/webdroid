@@ -34,10 +34,22 @@ class AuthDialogActivity : Activity() {
         // Callbacks
         var onCredentialsEntered: ((username: String, password: String) -> Unit)? = null
         var onDialogClosed: (() -> Unit)? = null
+
+        /**
+         * True while the dialog activity is alive.
+         *
+         * The service strips its overlays before showing this dialog, so
+         * anything that leaves the dialog dismissed without the close callback
+         * firing would otherwise leave the user with no bubble and no way back.
+         */
+        @Volatile
+        @JvmStatic
+        var isDialogAlive: Boolean = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        isDialogAlive = true
 
         // Make background semi-transparent
         window.setBackgroundDrawableResource(android.R.color.transparent)
@@ -250,6 +262,7 @@ class AuthDialogActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isDialogAlive = false
         onDialogClosed?.invoke()
         onCredentialsEntered = null
         onDialogClosed = null

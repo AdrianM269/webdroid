@@ -1858,6 +1858,11 @@ class FloatingBubbleService : Service() {
 
         // Show bubble again
         bubbleView?.visibility = View.VISIBLE
+
+        // Minimising hides the window just as stashing does, so offer the same
+        // one-tap way back. Without this the user has to find the bubble,
+        // which is the whole thing the notification is for.
+        showRestoreNotification()
     }
 
     // Close window and return to bubble mode (run on main thread)
@@ -1934,8 +1939,17 @@ class FloatingBubbleService : Service() {
             injectCredentials(username, password)
         }
 
-        // Show notification to restore overlays when dialog closes
+        // Restore the overlays as soon as the dialog closes.
+        //
+        // showAuthDialog() removes every overlay so the dialog can take
+        // touches, which leaves the user with nothing on screen if the
+        // restore path depends on them tapping a notification. onDialogClosed
+        // fires from AuthDialogActivity.onDestroy, so this covers Cancel,
+        // Fill Form and a back press alike. The notification stays as a
+        // fallback for the case where the process is killed mid-flow.
         AuthDialogActivity.onDialogClosed = {
+            android.util.Log.d("FloatingBubble", "onDialogClosed -> restoring overlays")
+            restoreOverlays()
             showRestoreNotification()
         }
 
@@ -1945,6 +1959,17 @@ class FloatingBubbleService : Service() {
             putExtra("url", currentUrl)
         }
         startActivity(intent)
+
+        // Safety net: onDialogClosed is a static callback on another class, so
+        // it is lost if the process is recreated while the dialog is up, and it
+        // never fires at all if startActivity throws. Poll for the dialog
+        // disappearing and put the overlays back regardless of how it closed.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!AuthDialogActivity.isDialogAlive) {
+                android.util.Log.d("FloatingBubble", "auth dialog gone -> restoring overlays")
+                restoreOverlays()
+            }
+        }, 1500)
     }
 
     // Show floating window again
@@ -1957,6 +1982,20 @@ class FloatingBubbleService : Service() {
 
     // Re-add overlays (after auth dialog closes)
     private fun restoreOverlays() {
+        // The bubble being on screen does not mean there is nothing to do: after
+        // a minimize it is attached while the window is gone, and the
+        // notification's whole job is to bring the window back. Each add below
+        // therefore checks its own view rather than bailing out early, because
+        // addView() on an attached view throws but a missing one is fine to skip.
+        val nothingAttached =
+            (bubbleView?.isAttachedToWindow != true) &&
+                (trashView?.isAttachedToWindow != true) &&
+                (stashView?.isAttachedToWindow != true) &&
+                (hiddenWebViewContainer?.isAttachedToWindow != true) &&
+                (floatingWindow?.isAttachedToWindow != true)
+        if (nothingAttached) {
+            android.util.Log.d("FloatingBubble", "restoreOverlays: nothing was attached, full restore")
+        }
         android.util.Log.d("FloatingBubble", "restoreOverlays called")
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.util.Log.d("FloatingBubble", "restoreOverlays: running on main thread")
@@ -1967,7 +2006,9 @@ class FloatingBubbleService : Service() {
             // every password-manager dialog.
             val hidden = hiddenWebViewContainer
             val params = hiddenParams
-            if (hidden == null) {
+            if (hidden != null && hidden.isAttachedToWindow) {
+                android.util.Log.d("FloatingBubble", "restoreOverlays: hidden already attached")
+            } else if (hidden == null) {
                 android.util.Log.w("FloatingBubble", "restoreOverlays: hiddenWebViewContainer is null")
             } else if (params == null) {
                 android.util.Log.w("FloatingBubble", "restoreOverlays: no hiddenParams, skipping")
@@ -1981,7 +2022,7 @@ class FloatingBubbleService : Service() {
             }
 
             // Re-add trashView
-            trashView?.let { trash ->
+            trashView?.takeIf { !it.isAttachedToWindow }?.let { trash ->
                 trashParams?.let { params ->
                     try {
                         windowManager.addView(trash, params)
@@ -1990,7 +2031,7 @@ class FloatingBubbleService : Service() {
             }
 
             // Re-add stashView
-            stashView?.let { stash ->
+            stashView?.takeIf { !it.isAttachedToWindow }?.let { stash ->
                 stashParams?.let { params ->
                     try {
                         windowManager.addView(stash, params)
@@ -2016,7 +2057,8 @@ class FloatingBubbleService : Service() {
             }
 
             // Re-add floatingWindow (if it was open)
-            floatingWindow?.let { window ->
+            val window = floatingWindow
+            if (window != null) {
                 floatingWindowParams?.let { params ->
                     // Restore saved position/size
                     savedWindowX?.let { params.x = it.toInt() }
@@ -2029,6 +2071,13 @@ class FloatingBubbleService : Service() {
                         windowManager.addView(window, params)
                     } catch (e: Exception) {}
                 }
+            } else if (!isExpanded) {
+                // The window was destroyed rather than just detached (the
+                // minimize path nulls floatingWindow), so there is nothing to
+                // re-add. Open a fresh one, otherwise tapping the notification
+                // brings back only the bubble and looks like nothing happened.
+                android.util.Log.d("FloatingBubble", "restoreOverlays: no window, opening one")
+                openFloatingWindow()
             }
         }
     }
