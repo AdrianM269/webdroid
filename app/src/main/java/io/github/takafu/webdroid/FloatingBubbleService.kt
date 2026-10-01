@@ -148,12 +148,19 @@ class FloatingBubbleService : Service() {
 
     /**
      * Serves the shared Termux workspace over a stable https origin so workspace
-     * HTML previews behave like real sites. Termux writes to
-     * $STORAGE_ROOT/webdroid-workspace, which this app can read without any
-     * runtime permission.
+     * HTML previews behave like real sites.
+     *
+     * The directory must be the one Termux itself can write, and the app must
+     * hold MANAGE_EXTERNAL_STORAGE to read it: Termux's files land in shared
+     * storage with its own uid and 0660, so without that permission every
+     * preview request fails with "Read failed".
      */
     private val workspaceDir: java.io.File by lazy {
-        java.io.File(android.os.Environment.getExternalStorageDirectory(), "webdroid-workspace")
+        val root = android.os.Environment.getExternalStorageDirectory()
+        // Honour an override so the agent can point previews at a scratch dir.
+        val prefs = getSharedPreferences("webdroid", MODE_PRIVATE)
+        val override = prefs.getString("workspace_dir", null)
+        java.io.File(override ?: java.io.File(root, "webdroid-workspace").absolutePath)
     }
 
     private val assetLoader: androidx.webkit.WebViewAssetLoader by lazy {

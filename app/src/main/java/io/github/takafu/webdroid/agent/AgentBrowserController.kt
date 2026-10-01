@@ -514,8 +514,19 @@ class AgentBrowserController(private val context: Context) {
         return trimmed
     }
 
-    private fun looksLikeFilePath(target: String): Boolean =
-        target.contains('/') && !target.startsWith("/") && target.endsWith(".html", true)
+    /**
+     * True for a workspace-relative file reference.
+     *
+     * A bare filename must qualify too: "test.html" is a workspace file, not
+     * the hostname "test.html". Requiring a slash here silently sent bare
+     * filenames to https://test.html/ and failed with ERR_NAME_NOT_RESOLVED.
+     */
+    private fun looksLikeFilePath(target: String): Boolean {
+        if (!target.endsWith(".html", true) && !target.endsWith(".htm", true)) return false
+        // A dotted host that merely ends in .html (e.g. "example.html") is
+        // ambiguous, but a workspace file is the far more likely intent here.
+        return !target.contains("://")
+    }
 
     /** Waits until the triggered navigation has committed and settled. */
     private fun awaitSettle(generationBefore: Int, urlBefore: String?, timeoutMs: Long): String? {
