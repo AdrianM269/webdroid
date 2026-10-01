@@ -482,24 +482,38 @@ class AutomationService : Service() {
             val params = parseBody(session)
             val from = numberOf(params["from"])?.toInt()
             val to = numberOf(params["to"])?.toInt()
-            val ports = if (from != null && to != null) {
-                LocalPortProbe.probeRange(from, to)
-            } else {
-                LocalPortProbe.probe()
+            if (from != null && to != null) {
+                // Explicit range: the agent is diagnosing a specific span.
+                val ports = LocalPortProbe.probeRange(from, to)
+                return successResponse(
+                    "${ports.size} open port(s) in $from-$to",
+                    "ports" to ports,
+                    "urls" to ports.map { "http://localhost:$it" },
+                    "range" to "$from-$to",
+                )
             }
+            // Default: only the workspace file server, which is the one port a
+            // caller cannot be expected to know. Everything else is navigated
+            // to directly, so guessing dev-server ports finds nothing.
+            val up = LocalPortProbe.isPortOpen(LocalPortProbe.WORKSPACE_PORT)
             return successResponse(
-                "${ports.size} open localhost port(s)",
-                "ports" to ports,
-                "urls" to ports.map { "http://localhost:$it" },
+                if (up) "Workspace file server is up on ${LocalPortProbe.WORKSPACE_PORT}"
+                else "Workspace file server is NOT running on ${LocalPortProbe.WORKSPACE_PORT}",
+                "workspacePort" to LocalPortProbe.WORKSPACE_PORT,
+                "running" to up,
+                "ports" to (if (up) listOf(LocalPortProbe.WORKSPACE_PORT) else emptyList<Int>()),
+                "urls" to (if (up) listOf("http://localhost:${LocalPortProbe.WORKSPACE_PORT}") else emptyList<String>()),
+                "hint" to "Start it with: ./serve.sh   (pass from/to to scan a range instead)",
             )
         }
 
         private fun handleTargets(ctrl: AgentBrowserController): Response {
-            val open = LocalPortProbe.probe()
+            val wsUp = LocalPortProbe.isPortOpen(LocalPortProbe.WORKSPACE_PORT)
             val (url, title) = ctrl.getUrl()
             return successResponse(
                 "Available preview targets",
-                "localhostPorts" to open,
+                "workspacePort" to LocalPortProbe.WORKSPACE_PORT,
+                "workspaceServerUp" to wsUp,
                 "workspaceHost" to WorkspacePathHandler.HOST,
                 "currentUrl" to url,
                 "currentTitle" to title,

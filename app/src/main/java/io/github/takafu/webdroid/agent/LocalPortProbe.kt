@@ -15,10 +15,18 @@ import java.util.concurrent.TimeUnit
  */
 object LocalPortProbe {
 
-    val COMMON_PORTS = listOf(
-        3000, 5173, 8000, 8080, 4321, 8081, 5000, 8888, 4200, 9000,
-        1234, 5500, 7860, 11434, 27017, 5432, 6379, 3001, 4000, 7000,
-    )
+    /**
+     * Port the workspace file server (`serve.sh`) binds.
+     *
+     * This is the only port a caller needs to *discover*, because it is the one
+     * the user starts themselves. Anything else the agent is investigating is
+     * navigated to explicitly, so a guessed list of dev-server ports adds
+     * nothing but noise.
+     */
+    const val WORKSPACE_PORT = 8899
+
+    /** Upper bound on a range scan, so a request can never hang. */
+    const val MAX_SCAN_PORTS = 2000
 
     /** Check whether a specific port is actively listening on loopback. */
     fun isPortOpen(port: Int, timeoutMs: Int = 60): Boolean = try {
@@ -37,7 +45,7 @@ object LocalPortProbe {
      * a phone; the pool keeps the whole scan well inside one animation frame
      * budget even on a slow device.
      */
-    fun probe(ports: List<Int> = COMMON_PORTS, timeoutMs: Int = 60): List<Int> {
+    fun probe(ports: List<Int>, timeoutMs: Int = 60): List<Int> {
         val pool = Executors.newFixedThreadPool(minOf(ports.size, 12))
         return try {
             pool.invokeAll(
@@ -92,7 +100,11 @@ object LocalPortProbe {
         val lo = from.coerceAtLeast(1024)
         val hi = to.coerceAtMost(65535)
         if (hi < lo) return emptyList()
-        return probe((lo..hi).toList(), timeoutMs)
+        // An unbounded 1024-65535 sweep takes ~24s and would hold the HTTP
+        // request open long enough to trip the agent's timeouts, so clamp to a
+        // range that finishes in well under a second.
+        val capped = if (hi - lo + 1 > MAX_SCAN_PORTS) (lo + MAX_SCAN_PORTS - 1) else hi
+        return probe((lo..capped).toList(), timeoutMs)
     }
 
     /** Normalizes a port number, localhost URL, or bare host string to `http://localhost:<port>`. */
