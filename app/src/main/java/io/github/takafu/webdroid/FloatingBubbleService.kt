@@ -41,6 +41,12 @@ class FloatingBubbleService : Service() {
     companion object {
         private var instance: FloatingBubbleService? = null
         private const val ACTION_RESTORE_OVERLAYS = "io.github.takafu.webdroid.RESTORE_OVERLAYS"
+
+        // Off-screen frame for the hidden WebView container. Sized like a phone
+        // so the page renders at a real viewport width, then positioned fully
+        // off-screen so it neither draws nor intercepts touches.
+        private const val OFFSCREEN_WIDTH = 1080
+        private const val OFFSCREEN_HEIGHT = 1920
         private const val NOTIFICATION_CHANNEL_ID = "browser_restore"
         private const val RESTORE_NOTIFICATION_ID = 2
 
@@ -122,6 +128,7 @@ class FloatingBubbleService : Service() {
     private var floatingWindow: View? = null
     private var floatingWindowParams: WindowManager.LayoutParams? = null
     private var hiddenWebViewContainer: FrameLayout? = null  // Holds WebView in bubble state
+    private var hiddenParams: WindowManager.LayoutParams? = null
     private var isExpanded = false
     private var isAnimating = false  // Animation in progress flag
 
@@ -207,9 +214,17 @@ class FloatingBubbleService : Service() {
     }
 
     private fun createHiddenWebViewContainer() {
-        // Hidden container to hold WebView even in bubble state
+        // Hidden container to hold the WebView while the bubble is collapsed.
+        //
+        // This was a full-screen (1080x1920) window at alpha 0.02, which caused
+        // two user-visible bugs: the page ghosted over every other app, and on
+        // this OEM (Samsung/Android 16) the full-screen TRANSLUCENT overlay
+        // swallowed taps aimed at the app underneath even with
+        // FLAG_NOT_TOUCHABLE set. Both are fixed by parking the window entirely
+        // off-screen: the compositor never sees it and the input dispatcher
+        // never routes to it, while the WebView keeps a real viewport size.
         val container = FrameLayout(this).apply {
-            alpha = 0.02f  // Nearly transparent (2%) - needed to maintain rendering
+            alpha = 0f
         }
 
         // Add WebView
@@ -221,24 +236,43 @@ class FloatingBubbleService : Service() {
             ))
         }
 
+        // The window keeps a full phone-sized frame so the WebView renders at a
+        // real viewport width (a 1x1 window collapses innerWidth to 1px, which
+        // makes responsive sites serve their narrow layout and hides content
+        // from the snapshot). It is parked entirely off-screen instead, so it is
+        // invisible to the compositor and never intersects the display's
+        // touchable region.
         val params = WindowManager.LayoutParams(
-            1080,  // Large enough for screenshots
-            1920,
+            OFFSCREEN_WIDTH,
+            OFFSCREEN_HEIGHT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
+            // NOT_TOUCHABLE: no input at all.
+            // NOT_FOCUSABLE: no keyboard/focus stealing.
+            // NOT_TOUCH_MODAL: input outside this window is not routed here.
+            // LAYOUT_NO_LIMITS: required for the off-screen position to stick;
+            // without it the window manager clamps the window back on-screen.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,  // Not touchable
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
+            // Fully outside the display bounds, left and above the origin.
+            x = -OFFSCREEN_WIDTH - 200
+            y = -OFFSCREEN_HEIGHT - 200
         }
 
         hiddenWebViewContainer = container
-        windowManager.addView(container, params)
+        hiddenParams = params
+        try {
+            windowManager.addView(container, params)
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingBubble", "Failed to add hidden container: ${e.message}")
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -1701,31 +1735,25 @@ class FloatingBubbleService : Service() {
         android.util.Log.d("FloatingBubble", "restoreOverlays called")
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.util.Log.d("FloatingBubble", "restoreOverlays: running on main thread")
-            // Re-add hiddenWebViewContainer
-            hiddenWebViewContainer?.let { container ->
-                android.util.Log.d("FloatingBubble", "restoreOverlays: adding hiddenWebViewContainer")
-                val params = WindowManager.LayoutParams(
-                    1080,
-                    1920,
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                    else
-                        WindowManager.LayoutParams.TYPE_PHONE,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-                    PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = Gravity.TOP or Gravity.START
-                    x = 0
-                    y = 0
-                }
+            // Re-add hiddenWebViewContainer.
+            // Reuse the off-screen params rather than rebuilding them:
+            // rebuilding at 1080x1920 on-screen here reintroduced the
+            // full-screen invisible window that leaked and blocked taps after
+            // every password-manager dialog.
+            val hidden = hiddenWebViewContainer
+            val params = hiddenParams
+            if (hidden == null) {
+                android.util.Log.w("FloatingBubble", "restoreOverlays: hiddenWebViewContainer is null")
+            } else if (params == null) {
+                android.util.Log.w("FloatingBubble", "restoreOverlays: no hiddenParams, skipping")
+            } else {
                 try {
-                    windowManager.addView(container, params)
+                    windowManager.addView(hidden, params)
                     android.util.Log.d("FloatingBubble", "restoreOverlays: hiddenWebViewContainer added")
                 } catch (e: Exception) {
                     android.util.Log.e("FloatingBubble", "restoreOverlays: failed to add hiddenWebViewContainer: ${e.message}")
                 }
-            } ?: android.util.Log.w("FloatingBubble", "restoreOverlays: hiddenWebViewContainer is null")
+            }
 
             // Re-add trashView
             trashView?.let { trash ->

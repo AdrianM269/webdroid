@@ -98,6 +98,8 @@ class AgentBrowserController(private val context: Context) {
         private const val SCREENSHOT_TIMEOUT_MS = 10_000L
         private const val PROBE_INTERVAL_MS = 120L
         private const val SCROLL_SETTLE_MS = 220L
+        private const val MIN_CAPTURE_WIDTH = 64
+        private const val MIN_CAPTURE_HEIGHT = 64
 
         /** Attribute stamped onto indexed elements so ids resolve to real nodes. */
         const val ID_ATTR = "data-webdroid-id"
@@ -757,7 +759,12 @@ private fun applyOutcome(target: String, failure: String?): BrowserState {
         return MainThread.await(SCREENSHOT_TIMEOUT_MS, null) {
             var width = wv.width
             var height = wv.height
-            if (width <= 0 || height <= 0) {
+            // The hidden container is a 1x1 off-screen window while collapsed,
+            // so anything below a usable threshold means the real viewport
+            // size is unknown. Measure the WebView itself at a full phone size
+            // and lay it out, then draw that. This is why the capture no longer
+            // depends on the overlay being full-screen.
+            if (width < MIN_CAPTURE_WIDTH || height < MIN_CAPTURE_HEIGHT) {
                 width = fallbackWidth
                 height = fallbackHeight
                 wv.measure(
