@@ -93,33 +93,6 @@ class FloatingBubbleService : Service() {
         /** Broadcast action for the notification's restore button. */
         const val ACTION_RESTORE_OVERLAYS = "io.github.takafu.webdroid.RESTORE_OVERLAYS"
 
-        /**
-         * Receives the restore broadcast.
-         *
-         * The service is not exported, so the tap cannot start it directly; this
-         * receiver is exported, which lets the system deliver the broadcast and
-         * bring the service back if it was reclaimed. Without this the
-         * notification is a dead end exactly when the user needs it.
-         */
-        class RestoreReceiver : android.content.BroadcastReceiver() {
-            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-                if (intent?.action != ACTION_RESTORE_OVERLAYS) return
-                android.util.Log.d("FloatingBubble", "RestoreReceiver: bringing service back")
-                val svc = Intent(context, FloatingBubbleService::class.java).apply {
-                    action = ACTION_RESTORE_OVERLAYS
-                }
-                try {
-                    // Plain startService, not startForegroundService: this
-                    // service never posts a foreground notification, so
-                    // starting it as one would be killed for not calling
-                    // startForeground within 5 seconds. It may already be
-                    // running, in which case this only delivers the action.
-                    context?.startService(svc)
-                } catch (e: Exception) {
-                    android.util.Log.e("FloatingBubble", "RestoreReceiver: failed to start: ${e.message}")
-                }
-            }
-        }
 
         // Off-screen frame for the hidden WebView container. Sized like a phone
         // so the page renders at a real viewport width, then positioned fully

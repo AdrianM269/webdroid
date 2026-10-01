@@ -81,7 +81,7 @@
             process had been reclaimed.
         -->
         <receiver
-            android:name=".FloatingBubbleService$RestoreReceiver"
+            android:name=".RestoreReceiver"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
