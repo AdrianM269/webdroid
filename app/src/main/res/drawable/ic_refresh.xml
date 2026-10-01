@@ -1,0 +1,25 @@
+<!--
+    Feather Icons - refresh-cw (rotate-cw)
+    https://feathericons.com/
+    MIT License: https://github.com/feathericons/feather/blob/master/LICENSE
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M23,4v6h-6"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"/>
+    <path
+        android:pathData="M20.49,15a9,9 0,1 1,-2.12,-9.36L23,10"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"/>
+</vector>

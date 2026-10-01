@@ -747,6 +747,25 @@ private fun applyOutcome(target: String, failure: String?): BrowserState {
         return MainThread.await(1_000, "" to "") { (wv.url ?: "") to (wv.title ?: "") }
     }
 
+    // ---- UI-thread helpers for the bubble service -----------------------
+
+    /**
+     * Reads the current URL for display in the address bar.
+     *
+     * The UI thread hop lives here rather than exposing MainThread, which is
+     * internal to this package: the service is a different package and has no
+     * business marshalling to the looper itself.
+     */
+    fun urlForDisplay(): String? = currentUrl()
+
+    /** Whether the WebView can go back / forward, for enabling nav buttons. */
+    fun historyAvailability(): Pair<Boolean, Boolean> {
+        val wv = webView() ?: return false to false
+        return MainThread.await(500, false to false) {
+            (wv.canGoBack()) to (wv.canGoForward())
+        }
+    }
+
     // ---- Screenshot ------------------------------------------------------
 
     /**

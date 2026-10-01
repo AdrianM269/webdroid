@@ -30,6 +30,8 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.webkit.WebView
 import android.widget.Button
+import android.widget.EditText
+import io.github.takafu.webdroid.agent.AgentBrowserController
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -129,6 +131,13 @@ class FloatingBubbleService : Service() {
     private var floatingWindowParams: WindowManager.LayoutParams? = null
     private var hiddenWebViewContainer: FrameLayout? = null  // Holds WebView in bubble state
     private var hiddenParams: WindowManager.LayoutParams? = null
+
+    /** Address bar, kept in sync with the WebView's real URL. */
+    private var addressBarField: android.widget.EditText? = null
+
+    /** back / forward / refresh, dimmed when the history says they are no-ops. */
+    private var navButtons: List<android.widget.ImageView> = emptyList()
+
     private var isExpanded = false
     private var isAnimating = false  // Animation in progress flag
 
@@ -942,14 +951,19 @@ class FloatingBubbleService : Service() {
         }
 
         val title = TextView(this).apply {
-            text = "Browser Automation"
+            text = "WebDroid"
             setTextColor(Color.WHITE)
             textSize = 16f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            // The header now carries a button cluster, so the title must yield
+            // rather than push the buttons out of the window when the user has
+            // dragged the window narrow.
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
+                0.6f
             )
         }
 
@@ -1112,12 +1126,107 @@ class FloatingBubbleService : Service() {
             }
         }
 
+        // Nav buttons live in the gradient header next to the live-action chip,
+        // styled like the other header buttons (white icon, translucent pill).
+        // They are created before the header is assembled so they can be added
+        // in the right order.
+        fun navButton(iconRes: Int, onClick: () -> Unit): ImageView = ImageView(this).apply {
+            setImageResource(iconRes)
+            val btnSize = 56
+            val pad = 15
+            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+                marginEnd = 6
+            }
+            setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#33FFFFFF"))
+            }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setOnClickListener { onClick() }
+        }
+
+        val backButton = navButton(R.drawable.ic_arrow_left) {
+            val wv = BrowserActivity.webView ?: return@navButton
+            android.os.Handler(android.os.Looper.getMainLooper()).post { wv.goBack() }
+        }
+        val forwardButton = navButton(R.drawable.ic_arrow_right) {
+            val wv = BrowserActivity.webView ?: return@navButton
+            android.os.Handler(android.os.Looper.getMainLooper()).post { wv.goForward() }
+        }
+        val refreshButton = navButton(R.drawable.ic_refresh) {
+            val wv = BrowserActivity.webView ?: return@navButton
+            android.os.Handler(android.os.Looper.getMainLooper()).post { wv.reload() }
+        }
+
+        // Address bar. An EditText rather than a TextView so the stock IME
+        // handles selection, autocorrect-off behaviour and paste. It is not
+        // focused on open: tapping it focuses it and raises the keyboard.
+        val addressBar = EditText(this).apply {
+            setText(BrowserActivity.webView?.url ?: "")
+            setHint("Type a URL or search")
+            setHintTextColor(Color.parseColor("#9aa3b2"))
+            setTextColor(Color.parseColor("#1f2430"))
+            textSize = 13f
+            maxLines = 1
+            setSingleLine(true)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setPadding(16, 8, 16, 8)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 20f
+                setColor(Color.parseColor("#ffffff"))
+            }
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                    submitAddress(this)
+                    true
+                } else {
+                    false
+                }
+            }
+            // Tapping the bar focuses it and keeps the keyboard up. Losing
+            // focus rewrites the field with the real URL, so a half-typed
+            // guess never lingers and misrepresents where the browser is.
+            setOnFocusChangeListener { v, hasFocus ->
+                if (hasFocus) {
+                    (v as EditText).selectAll()
+                } else {
+                    updateAddressBar(v as EditText)
+                }
+            }
+        }
+        addressBarField = addressBar
+
+        // Header assembly: title, live-action chip, then the nav cluster, then
+        // the existing tools. The title and chip share the leftover width so
+        // the buttons always keep their exact size.
         header.addView(title)
         header.addView(liveActionChip)
+        header.addView(backButton)
+        header.addView(forwardButton)
+        header.addView(refreshButton)
         header.addView(devtoolsButton)
         header.addView(authBtn)
         header.addView(minimizeButton)
         container.addView(header)
+        navButtons = listOf(backButton, forwardButton, refreshButton)
+
+        // Address bar keeps its own full-width row: it needs the space, and
+        // this keeps the header from growing past the window's narrow minimum.
+        val addressRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#eef1f6"))
+            val p = 10
+            setPadding(p, p, p, p)
+        }
+        addressRow.addView(addressBar)
+        container.addView(addressRow)
+
         startLiveActionUpdates(liveActionChip)
 
         // Title bar drag handling
@@ -1504,6 +1613,13 @@ class FloatingBubbleService : Service() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     AutomationService.onPageEvent("page_finished", url ?: "", url)
+                    // Keep the address bar and nav buttons honest about where
+                    // the browser ended up, including after redirects and
+                    // in-page SPA route changes.
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        updateAddressBar()
+                        updateNavButtonState()
+                    }, 150)
 
                     // Detect login form and toggle auth button visibility
                     detectLoginForm(view)
@@ -1542,6 +1658,12 @@ class FloatingBubbleService : Service() {
                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                     super.doUpdateVisitedHistory(view, url, isReload)
                     android.util.Log.d("FloatingBubble", "doUpdateVisitedHistory: url=$url, isReload=$isReload")
+                    // Back/forward and SPA pushes land here, so this is what
+                    // keeps the nav buttons' enabled state accurate.
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        updateAddressBar()
+                        updateNavButtonState()
+                    }
                     // Re-detect login form on URL change (for SPA-style navigation)
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         android.util.Log.d("FloatingBubble", "doUpdateVisitedHistory: detecting login form")
@@ -1569,6 +1691,73 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    /**
+     * Resolves what the user typed into a URL and loads it.
+     *
+     * Reuses the agent's own [AgentBrowserController.normalizeTarget] so the
+     * address bar accepts the same shorthands the HTTP API does: a bare port,
+     * `localhost:3000` without a scheme, and workspace files like
+     * `test.html`. Text that is not a URL at all becomes a DuckDuckGo search,
+     * which is what a user typing a phrase into an address bar expects.
+     */
+    private fun submitAddress(field: android.widget.EditText) {
+        val raw = field.text?.toString()?.trim().orEmpty()
+        if (raw.isEmpty()) {
+            updateAddressBar(field)
+            return
+        }
+        val ctrl = AutomationService.peekController()
+        val looksLikeUrl = raw.contains("://") ||
+            raw.startsWith("localhost", ignoreCase = true) ||
+            raw.matches(Regex("^\\d{1,5}$")) ||
+            raw.endsWith(".html", ignoreCase = true) ||
+            raw.endsWith(".htm", ignoreCase = true)
+
+        val target = when {
+            looksLikeUrl -> ctrl?.normalizeTarget(raw) ?: raw
+            // A dotted host with no scheme, e.g. "example.com/page".
+            raw.contains('.') && !raw.contains(' ') -> "https://$raw"
+            else -> "https://duckduckgo.com/?q=" + java.net.URLEncoder.encode(raw, "UTF-8")
+        }
+        field.clearFocus()
+        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(field.windowToken, 0)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            BrowserActivity.webView?.loadUrl(target)
+        }
+    }
+
+    /** Rewrites the address bar with the WebView's actual URL, if not focused. */
+    private fun updateAddressBar(field: android.widget.EditText? = addressBarField) {
+        val f = field ?: return
+        if (f.hasFocus()) return
+        val url = AutomationService.peekController()?.urlForDisplay()
+        if (!url.isNullOrBlank() && f.text?.toString() != url) f.setText(url)
+        updateNavButtonState()
+    }
+
+    /**
+     * Dims back/forward when there is nothing to go to.
+     *
+     * A live-looking button that silently does nothing is worse than a greyed
+     * one: the user cannot tell "no history" from "the tap was swallowed".
+     */
+    private fun updateNavButtonState() {
+        val (canBack, canForward) = AutomationService.peekController()?.historyAvailability()
+            ?: (false to false)
+        // On the dark header an inactive control has to go dimmer and more
+        // transparent, not darker, or it reads as a different button.
+        val active = android.graphics.Color.WHITE
+        val inactive = android.graphics.Color.argb(90, 255, 255, 255)
+        val list = navButtons
+        if (list.size >= 3) {
+            list[0].setColorFilter(if (canBack) active else inactive)
+            list[0].alpha = if (canBack) 1f else 0.5f
+            list[1].setColorFilter(if (canForward) active else inactive)
+            list[1].alpha = if (canForward) 1f else 0.5f
+        }
+    }
     /**
      * Polls the agent controller and repaints the live-action chip.
      *
