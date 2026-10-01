@@ -185,6 +185,8 @@ class AutomationService : Service() {
                     uri == "/bubble/minimize" && method == Method.POST -> handleMinimizeBubble()
                     uri == "/bubble/state" && method == Method.GET -> handleBubbleState()
                     uri == "/ua" && method == Method.GET -> handleGetUa()
+                    uri == "/workspace" && method == Method.GET -> handleGetWorkspace()
+                    uri == "/workspace" && method == Method.POST -> handleSetWorkspace(session)
                     uri == "/ua/default" && method == Method.POST -> handleSetUaDefault()
                     uri == "/ua/google-login" && method == Method.POST -> handleSetUaGoogleLogin()
                     uri == "/ua/custom" && method == Method.POST -> handleSetUaCustom(session)
@@ -301,6 +303,69 @@ class AutomationService : Service() {
             "userAgent" to FloatingBubbleService.getCurrentUa(),
         )
 
+        private fun handleGetWorkspace(): Response {
+            val dir = FloatingBubbleService.currentWorkspaceDir()
+            val listing: List<String>? =
+                if (dir.isDirectory && dir.canRead()) dir.list()?.toList() ?: emptyList() else null
+            return successResponse(
+                "Workspace directory",
+                "path" to dir.absolutePath,
+                "exists" to dir.isDirectory,
+                "readable" to (dir.isDirectory && dir.canRead()),
+                "fileCount" to (listing?.size ?: 0),
+                "files" to (listing?.sorted()?.take(50) ?: emptyList<String>()),
+            )
+        }
+
+        private fun handleSetWorkspace(session: IHTTPSession): Response {
+            // Match the other handlers: the JSON body arrives as `postData`,
+            // so read the path from the parsed body, not session.parms.
+            val body = parseBody(session)
+            val raw = (body["path"] as? String)
+                ?: (session.parms?.get("path"))
+            if (raw.isNullOrBlank()) {
+                return errorResponse("Missing 'path' parameter")
+            }
+            val dir = java.io.File(raw.trim())
+            if (!dir.exists()) {
+                // Under Android's sandbox another app's private directory is not
+                // merely unreadable, it is invisible: exists() is false for a
+                // path the user can plainly see in a file manager. Say so,
+                // because "Not a directory" sends people hunting for a typo.
+                val looksTermux = raw.contains("/com.termux/") || raw.contains("/data/data/")
+                return errorResponse(
+                    if (looksTermux) {
+                        "Path does not exist as far as this app can see: $raw. " +
+                            "Android 11+ hides other apps' private data entirely, so a " +
+                            "path inside another app's /data/data can never be used here " +
+                            "even though it exists. Serve the files over http://localhost " +
+                            "and preview them by port instead."
+                    } else {
+                        "No such directory: $raw"
+                    }
+                )
+            }
+            if (!dir.isDirectory) {
+                return errorResponse("Not a directory: $raw")
+            }
+            // The app usually lacks read access to other apps' private data
+            // (Termux home included). Fail loudly now rather than serving
+            // 'Not found' on every subsequent workspace request.
+            if (!dir.canRead()) {
+                return errorResponse(
+                    "Directory exists but is not readable by this app: $raw. " +
+                        "Android 11+ does not allow reading another app's private data; " +
+                        "use shared storage (e.g. /sdcard/<dir>) or serve the files " +
+                        "over http://localhost and preview them by port."
+                )
+            }
+            FloatingBubbleService.setWorkspaceDir(dir)
+            return successResponse(
+                "Workspace directory set",
+                "path" to FloatingBubbleService.currentWorkspaceDir().absolutePath,
+            )
+        }
+
         private fun handleSetUaDefault(): Response {
             FloatingBubbleService.setUaMode(FloatingBubbleService.UA_MODE_DEFAULT)
             return successResponse(
@@ -349,11 +414,23 @@ class AutomationService : Service() {
             val text = params["text"] as? String ?: return errorResponse("Missing 'text' parameter")
             val id = numberOf(params["id"])?.toInt()
             val selector = params["selector"] as? String
+            // Typing replaces the field by default. `clear_first` is the older
+            // name for that same behaviour, so honour it as an alias.
+            val append = params["append"] as? Boolean ?: false
             val clearFirst = params["clear_first"] as? Boolean ?: false
+            val submit = params["submit"] as? Boolean ?: false
             if (id == null && selector.isNullOrBlank()) {
                 return errorResponse("Provide either 'id' (integer) or 'selector' (string).")
             }
-            return stateResponse(ctrl.type(text, elementId = id, selector = selector, clearFirst = clearFirst))
+            return stateResponse(
+                ctrl.type(
+                    text,
+                    elementId = id,
+                    selector = selector,
+                    append = append && !clearFirst,
+                    submit = submit,
+                )
+            )
         }
 
         private fun handleScroll(ctrl: AgentBrowserController, session: IHTTPSession): Response {

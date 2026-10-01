@@ -293,30 +293,55 @@ class AgentBrowserController(private val context: Context) {
         """.trimIndent()
 
         /** Page script that types text into the target. Text is JSON-encoded so quotes cannot break it. */
-        fun buildTypeJs(target: ElementTarget, text: String, clearFirst: Boolean): String {
+        /**
+         * Builds the script for [type].
+         *
+         * `replace` (the default) overwrites the field first, because the common
+         * agent workflow is "type X into this box" and appending to whatever the
+         * page pre-filled produces silently wrong values such as
+         * "logisticswarehouse". Set `append` to build up a value instead.
+         */
+        fun buildTypeJs(target: ElementTarget, text: String, clearFirst: Boolean, pressEnter: Boolean): String {
             val encodedText = gson.toJson(text)
             val notTextField = gson.toJson("${target.errorSubject} is a <")
             val press = if (clearFirst) "el.value = '';" else ""
+            // Real key events, not just a value assignment: autocomplete widgets
+            // and facet filters listen for input/change, and a submit button may
+            // only respond to a genuine Enter keydown.
+            val enterJs = if (pressEnter) """
+                        try {
+                            ['keydown','keypress','keyup'].forEach(function (t) {
+                                el.dispatchEvent(new KeyboardEvent(t, {
+                                    key: 'Enter', code: 'Enter', keyCode: 13,
+                                    which: 13, bubbles: true, cancelable: true
+                                }));
+                            });
+                        } catch (e) {}
+                        if (el.form && typeof el.form.requestSubmit === 'function') {
+                            try { el.form.requestSubmit(); } catch (e) {}
+                        }
+            """.trimIndent() else ""
             return """
-                (function() {
-                    ${elementLookupJs(target)}
-                    var tag = (el.tagName || '').toLowerCase();
-                    if (tag !== 'input' && tag !== 'textarea' && tag !== 'select' && el.isContentEditable !== true) {
-                        return { ok: false, error: $notTextField + tag + '>, not a text field.' };
-                    }
-                    el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    try { el.focus(); } catch (e) {}
-                    $press
-                    if (el.isContentEditable === true) {
-                        el.textContent = (el.textContent || '') + $encodedText;
-                    } else {
-                        el.value = (el.value || '') + $encodedText;
-                    }
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    return { ok: true$DISABLED_WARNING_JS };
-                })();
-            """.trimIndent()
+                    (function() {
+                        ${elementLookupJs(target)}
+                        var tag = (el.tagName || '').toLowerCase();
+                        if (tag !== 'input' && tag !== 'textarea' && tag !== 'select' && el.isContentEditable !== true) {
+                            return { ok: false, error: $notTextField + tag + '>, not a text field.' };
+                        }
+                        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        try { el.focus(); } catch (e) {}
+                        $press
+                        if (el.isContentEditable === true) {
+                            el.textContent = (el.textContent || '') + $encodedText;
+                        } else {
+                            el.value = (el.value || '') + $encodedText;
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        $enterJs
+                        return { ok: true$DISABLED_WARNING_JS };
+                    })();
+                """.trimIndent()
         }
 
         /**
@@ -629,13 +654,27 @@ private fun applyOutcome(target: String, failure: String?): BrowserState {
         return finishAction(obj, extractState())
     }
 
-    fun type(text: String, elementId: Int? = null, selector: String? = null, clearFirst: Boolean = false): BrowserState {
+    /**
+     * Types [text] into the target field.
+     *
+     * Replaces the existing value by default. Appending is only correct when
+     * building a value up deliberately, and silently appending to a
+     * pre-filled field is the kind of bug that produces plausible-looking but
+     * wrong scraped data.
+     */
+    fun type(
+        text: String,
+        elementId: Int? = null,
+        selector: String? = null,
+        append: Boolean = false,
+        submit: Boolean = false,
+    ): BrowserState {
         val target = ElementTarget.resolve(elementId, selector)
             ?: return BrowserState(error = "Provide either 'id' (integer) or 'selector' (string).")
         val preview = if (text.length > 24) text.take(24) + "…" else text
         val targetLabel = target.selector ?: "id=${target.elementId}"
         track("type", "$targetLabel <- '$preview'", ok = true)
-        val obj = parseJsonObject(evalRaw(buildTypeJs(target, text, clearFirst)))
+        val obj = parseJsonObject(evalRaw(buildTypeJs(target, text, clearFirst = !append, pressEnter = submit)))
             ?: return BrowserState(error = "No response from page.")
         return finishAction(obj, extractState())
     }

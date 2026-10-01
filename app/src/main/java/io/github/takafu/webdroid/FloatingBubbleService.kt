@@ -42,6 +42,54 @@ class FloatingBubbleService : Service() {
 
     companion object {
         private var instance: FloatingBubbleService? = null
+        @JvmStatic fun currentService(): FloatingBubbleService? = instance
+        /**
+         * Resolves the workspace root.
+         *
+         * Defaults to shared storage: on Android 11+ the app cannot read
+         * another app's private data, so Termux's home is only usable when
+         * explicitly configured via `POST /workspace`.
+         */
+        @JvmStatic
+        fun workspaceDirFor(override: String?): java.io.File {
+            if (!override.isNullOrBlank()) return java.io.File(override)
+            val root = android.os.Environment.getExternalStorageDirectory()
+            return java.io.File(root, "webdroid-workspace")
+        }
+
+        @JvmStatic
+        fun currentWorkspaceDir(): java.io.File =
+            instance?.let { workspaceDirFor(it.storedWorkspaceDir()) }
+                ?: workspaceDirFor(null)
+
+        /** Persists the workspace root and applies it to the live handler. */
+        @JvmStatic
+        fun setWorkspaceDir(dir: java.io.File) {
+            instance?.apply {
+                getSharedPreferences("webdroid", MODE_PRIVATE).edit()
+                    .putString("workspace_dir", dir.absolutePath).apply()
+                onWorkspaceDirChanged?.invoke(dir)
+            }
+        }
+
+        /**
+         * Set by the service so the API can re-point the live asset loader.
+         */
+        @JvmStatic
+        var onWorkspaceDirChanged: ((java.io.File) -> Unit)? = null
+
+        /**
+         * Registers the callback that re-points a running service's asset
+         * loader, so `POST /workspace` takes effect without a restart.
+         */
+        @JvmStatic
+        fun installWorkspaceWatcher() {
+            onWorkspaceDirChanged = { dir ->
+                val svc = instance
+                if (svc != null) svc.assetLoader = svc.buildAssetLoader(dir)
+            }
+        }
+
         private const val ACTION_RESTORE_OVERLAYS = "io.github.takafu.webdroid.RESTORE_OVERLAYS"
 
         // Off-screen frame for the hidden WebView container. Sized like a phone
@@ -166,28 +214,31 @@ class FloatingBubbleService : Service() {
      * Serves the shared Termux workspace over a stable https origin so workspace
      * HTML previews behave like real sites.
      *
-     * The directory must be the one Termux itself can write, and the app must
-     * hold MANAGE_EXTERNAL_STORAGE to read it: Termux's files land in shared
-     * storage with its own uid and 0660, so without that permission every
-     * preview request fails with "Read failed".
+     * The directory must be the one Termux itself can write.
+     *
+     * Android 11+ forbids reading another app's private data outright, so a
+     * path such as Termux's home is never readable here no matter which
+     * permissions are held. That case is reported explicitly by the path
+     * handler instead of masquerading as a missing file.
      */
-    private val workspaceDir: java.io.File by lazy {
-        val root = android.os.Environment.getExternalStorageDirectory()
-        // Honour an override so the agent can point previews at a scratch dir.
-        val prefs = getSharedPreferences("webdroid", MODE_PRIVATE)
-        val override = prefs.getString("workspace_dir", null)
-        java.io.File(override ?: java.io.File(root, "webdroid-workspace").absolutePath)
-    }
+    private val workspaceDir: java.io.File by lazy { workspaceDirFor(storedWorkspaceDir()) }
 
-    private val assetLoader: androidx.webkit.WebViewAssetLoader by lazy {
+    /** The configured override, if any. Read before the lazy is initialised. */
+    internal fun storedWorkspaceDir(): String? =
+        getSharedPreferences("webdroid", MODE_PRIVATE).getString("workspace_dir", null)
+
+
+    /** Mutable so `POST /workspace` can re-point it at a new root. */
+    internal var assetLoader: androidx.webkit.WebViewAssetLoader? = null
+
+    internal fun buildAssetLoader(dir: java.io.File): androidx.webkit.WebViewAssetLoader =
         androidx.webkit.WebViewAssetLoader.Builder()
             .setDomain(io.github.takafu.webdroid.agent.WorkspacePathHandler.HOST)
             .addPathHandler(
                 io.github.takafu.webdroid.agent.WorkspacePathHandler.PATH_PREFIX,
-                io.github.takafu.webdroid.agent.WorkspacePathHandler(this, workspaceDir),
+                io.github.takafu.webdroid.agent.WorkspacePathHandler(this, dir),
             )
             .build()
-    }
 
     // Custom velocity tracking (more stable than VelocityTracker)
     private data class TouchSample(val x: Float, val y: Float, val time: Long)
@@ -198,6 +249,7 @@ class FloatingBubbleService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        installWorkspaceWatcher()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         // Initialize WebView
@@ -950,23 +1002,6 @@ class FloatingBubbleService : Service() {
             setPadding(padding, padding, padding, padding)
         }
 
-        val title = TextView(this).apply {
-            text = "WebDroid"
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            // The header now carries a button cluster, so the title must yield
-            // rather than push the buttons out of the window when the user has
-            // dragged the window narrow.
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                0.6f
-            )
-        }
-
         // Auth button (password manager) - shown only when login form detected
         // Icon: Feather Icons "lock" (https://feathericons.com/)
         val authBtn = ImageView(this).apply {
@@ -1023,10 +1058,12 @@ class FloatingBubbleService : Service() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
+            // Weight 1: the chip is now the only element in the header that
+            // shares the leftover width, so it fills it.
             layoutParams = LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                0.9f
+                1f
             ).apply {
                 marginEnd = 8
             }
@@ -1201,10 +1238,8 @@ class FloatingBubbleService : Service() {
         }
         addressBarField = addressBar
 
-        // Header assembly: title, live-action chip, then the nav cluster, then
-        // the existing tools. The title and chip share the leftover width so
-        // the buttons always keep their exact size.
-        header.addView(title)
+        // Header assembly: the live-action chip fills the leftover width, then
+        // the nav cluster and the existing tools keep their exact size.
         header.addView(liveActionChip)
         header.addView(backButton)
         header.addView(forwardButton)
@@ -1651,7 +1686,8 @@ class FloatingBubbleService : Service() {
                     request: android.webkit.WebResourceRequest?
                 ): android.webkit.WebResourceResponse? {
                     val uri = request?.url ?: return super.shouldInterceptRequest(view, request)
-                    return assetLoader.shouldInterceptRequest(uri)
+                    val loader = assetLoader ?: buildAssetLoader(workspaceDir).also { assetLoader = it }
+                    return loader.shouldInterceptRequest(uri)
                         ?: super.shouldInterceptRequest(view, request)
                 }
 
