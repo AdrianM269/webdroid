@@ -544,9 +544,34 @@ class AgentBrowserController(private val context: Context) {
         return "Timed out after ${timeoutMs}ms waiting for the page to finish loading."
     }
 
-    private fun applyOutcome(target: String, failure: String?): BrowserState {
+    /**
+ * True when the URL is WebView's own failure page rather than a real site.
+ *
+ * A WebView that cannot resolve or reach a host still fires onPageFinished, so
+ * the navigation looks settled and the page state comes back clean. An agent
+ * scraping that would silently collect an error page and report success, which
+ * is worse than an outright failure: the bad data is indistinguishable from a
+ * real result.
+ */
+fun isErrorPage(url: String?): Boolean {
+    val u = url?.trim().orEmpty()
+    if (u.isEmpty()) return false
+    return u.startsWith("chrome-error://", ignoreCase = true) ||
+        u.startsWith("chrome://network-error", ignoreCase = true) ||
+        u.startsWith("about:neterror", ignoreCase = true)
+}
+
+private fun applyOutcome(target: String, failure: String?): BrowserState {
         if (failure == null) {
             val state = extractState()
+            if (isErrorPage(state.url) || isErrorPage(currentUrl())) {
+                return BrowserState(
+                    url = state.url,
+                    error = "Failed to load '$target': the browser could not reach the host " +
+                        "(DNS or connection failure).",
+                    ready = false,
+                )
+            }
             return if (state.error != null) {
                 state.copy(note = "Page reported an error: ${state.error}", ready = false)
             } else {
